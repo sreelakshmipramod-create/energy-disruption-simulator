@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Supply Disruption Simulator | Ministry of Power</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        :root {
+            --primary: #1b4332;
+            --accent: #2d6a4f;
+            --danger: #d90429;
+            --warning: #f77f00;
+            --bg-dark: #081c15;
+            --panel-bg: #11241d;
+            --text-light: #f8f9fa;
+            --text-muted: #b7e4c7;
+            --border: #2d6a4f;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: var(--bg-dark); color: var(--text-light); height: 100vh; overflow: hidden; }
+
+        header {
+            background-color: var(--primary);
+            padding: 12px 24px;
+            border-bottom: 2px solid var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .gov-title { display: flex; align-items: center; gap: 12px; }
+        .gov-title h1 { font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; color: #fff; }
+        .badge { background: var(--accent); padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; }
+
+        .dashboard { display: grid; grid-template-columns: 1fr 420px; height: calc(100vh - 58px); }
+
+        .main-stage { display: grid; grid-template-rows: auto 1fr auto; padding: 16px; gap: 16px; background-color: #0b2219; }
+
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            background: var(--panel-bg);
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn:hover { filter: brightness(1.2); }
+        .btn-danger { background: var(--danger); }
+        .btn-outline { background: transparent; border: 1px solid var(--accent); }
+
+        #network-canvas {
+            width: 100%;
+            height: 100%;
+            background: #0d281e;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .metric-card {
+            background: var(--panel-bg);
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid var(--accent);
+        }
+        .metric-card.alert { border-left-color: var(--danger); }
+        .metric-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+        .metric-value { font-size: 1.4rem; font-weight: bold; margin-top: 4px; }
+
+        .sidebar {
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+            margin-bottom: 12px;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        th, td { text-align: left; padding: 8px; border-bottom: 1px solid #1f3a2e; }
+        th { color: var(--text-muted); font-weight: 600; }
+
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+        .bg-ok { background: #2ec4b6; }
+        .bg-fail { background: var(--danger); }
+
+        .assumptions {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            line-height: 1.5;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="gov-title">
+            <h1>Energy Supply Disruption Simulator</h1>
+            <span class="badge">PS02 | Ministry of Power</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-muted);">
+            Status: <span id="sys-status" style="color: #2ec4b6; font-weight: bold;">OPERATIONAL</span>
+        </div>
+    </header>
+
+    <div class="dashboard">
+        <div class="main-stage">
+            <div class="toolbar">
+                <span style="font-size: 0.85rem; font-weight: 600;">Demos:</span>
+                <button class="btn btn-outline" onclick="loadDemo(1)">Demo 1: Port Strike</button>
+                <button class="btn btn-outline" onclick="loadDemo(2)">Demo 2: Substation Outage</button>
+                <div style="flex-grow: 1;"></div>
+                <button class="btn btn-danger" onclick="resetNetwork()">Reset All Nodes</button>
+            </div>
+
+            <div id="network-canvas"></div>
+
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <div class="metric-label">Total Network Capacity</div>
+                    <div class="metric-value" id="m-capacity">1000 MW</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Current Supply Flow</div>
+                    <div class="metric-value" id="m-flow">1000 MW</div>
+                </div>
+                <div class="metric-card alert" id="card-shortage">
+                    <div class="metric-label">Deficit / Shortage</div>
+                    <div class="metric-value" id="m-shortage" style="color: #2ec4b6;">0 MW</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Added Transport Cost</div>
+                    <div class="metric-value" id="m-cost">+₹0 / MWh</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div>
+                <div class="section-title">Impacted Destinations</div>
+                <table id="dest-table">
+                    <thead>
+                        <tr>
+                            <th>Destination</th>
+                            <th>Demand</th>
+                            <th>Received</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div>
+                <div class="section-title">Ranked Alternative Routes</div>
+                <table id="alt-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Alternative Route</th>
+                            <th>Extra Cost</th>
+                            <th>Delay</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div>
+                <div class="section-title">Routing & Cost Assumptions</div>
+                <div class="assumptions">
+                    • <b>Cost Metric:</b> ₹ per MWh transmitted across edge.<br>
+                    • <b>Delay Metric:</b> Hours added per re-routed transit stage.<br>
+                    • <b>Shortage Rule:</b> Primary high-capacity lines prioritized first.<br>
+                    • Click any node on canvas to disable/enable in real time.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const initialNodes = [
+            { id: 1, label: 'Mundra Port\n(Supplier)', group: 'supplier', shape: 'diamond' },
+            { id: 2, label: 'Vizag Terminal\n(Supplier)', group: 'supplier', shape: 'diamond' },
+            { id: 3, label: 'Jamnagar Refinery', group: 'hub', shape: 'box' },
+            { id: 4, label: 'Northern Substation', group: 'hub', shape: 'box' },
+            { id: 5, label: 'Eastern Substation', group: 'hub', shape: 'box' },
+            { id: 6, label: 'Delhi NCR\n(Demand: 400MW)', group: 'demand', shape: 'ellipse' },
+            { id: 7, label: 'Kolkata Metro\n(Demand: 300MW)', group: 'demand', shape: 'ellipse' },
+            { id: 8, label: 'Mumbai Industrial\n(Demand: 300MW)', group: 'demand', shape: 'ellipse' }
+        ];
+
+        const initialEdges = [
+            { id: 'e1-3', from: 1, to: 3, label: '500MW | ₹10', capacity: 500, cost: 10, delay: 1 },
+            { id: 'e1-4', from: 1, to: 4, label: '300MW | ₹15', capacity: 300, cost: 15, delay: 2 },
+            { id: 'e2-5', from: 2, to: 5, label: '400MW | ₹12', capacity: 400, cost: 12, delay: 1 },
+            { id: 'e3-8', from: 3, to: 8, label: '300MW | ₹8', capacity: 300, cost: 8, delay: 1 },
+            { id: 'e3-4', from: 3, to: 4, label: '200MW | ₹12', capacity: 200, cost: 12, delay: 2 },
+            { id: 'e4-6', from: 4, to: 6, label: '400MW | ₹5', capacity: 400, cost: 5, delay: 1 },
+            { id: 'e5-7', from: 5, to: 7, label: '300MW | ₹6', capacity: 300, cost: 6, delay: 1 },
+            { id: 'e5-6', from: 5, to: 6, label: '100MW | ₹20', capacity: 100, cost: 20, delay: 4 } // Backup route
+        ];
+
+        let disabledNodes = new Set();
+        let network = null;
+
+        function initNetwork() {
+            const container = document.getElementById('network-canvas');
+            const data = {
+                nodes: new vis.DataSet(initialNodes.map(n => ({
+                    ...n,
+                    color: { background: '#2d6a4f', border: '#52b788', highlight: '#74c69d' },
+                    font: { color: '#ffffff' }
+                }))),
+                edges: new vis.DataSet(initialEdges.map(e => ({
+                    ...e,
+                    color: { color: '#52b788' },
+                    arrows: 'to'
+                })))
+            };
+
+            const options = {
+                physics: { solver: 'forceAtlas2Based' },
+                interaction: { hover: true }
+            };
+
+            network = new vis.Network(container, data, options);
+
+            network.on("click", function (params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    toggleNode(nodeId);
+                }
+            });
+
+            recalculate();
+        }
+
+        function toggleNode(nodeId) {
+            if (disabledNodes.has(nodeId)) {
+                disabledNodes.delete(nodeId);
+            } else {
+                disabledNodes.add(nodeId);
+            }
+            updateVisuals();
+            recalculate();
+        }
+
+        function updateVisuals() {
+            const nodesDs = network.body.data.nodes;
+            initialNodes.forEach(n => {
+                if (disabledNodes.has(n.id)) {
+                    nodesDs.update({ id: n.id, color: { background: '#d90429', border: '#ef233c' } });
+                } else {
+                    nodesDs.update({ id: n.id, color: { background: '#2d6a4f', border: '#52b788' } });
+                }
+            });
+        }
+
+        function recalculate() {
+            let activeNodes = initialNodes.filter(n => !disabledNodes.has(n.id)).map(n => n.id);
+            let activeEdges = initialEdges.filter(e => !disabledNodes.has(e.from) && !disabledNodes.has(e.to));
+
+            // Compute flows and deficits
+            let delhiSupply = 0;
+            if (activeEdges.some(e => e.id === 'e4-6')) delhiSupply += 300;
+            if (activeEdges.some(e => e.id === 'e5-6')) delhiSupply += 100;
+
+            let kolkataSupply = activeEdges.some(e => e.id === 'e5-7') ? 300 : 0;
+            let mumbaiSupply = activeEdges.some(e => e.id === 'e3-8') ? 300 : 0;
+
+            let totalDemand = 1000;
+            let currentFlow = delhiSupply + kolkataSupply + mumbaiSupply;
+            let shortage = totalDemand - currentFlow;
+
+            document.getElementById('m-flow').innerText = currentFlow + ' MW';
+            document.getElementById('m-shortage').innerText = shortage + ' MW';
+
+            const shortageElem = document.getElementById('m-shortage');
+            if (shortage > 0) {
+                shortageElem.style.color = '#d90429';
+                document.getElementById('sys-status').innerText = 'CRITICAL DISRUPTION';
+                document.getElementById('sys-status').style.color = '#d90429';
+            } else {
+                shortageElem.style.color = '#2ec4b6';
+                document.getElementById('sys-status').innerText = 'OPERATIONAL';
+                document.getElementById('sys-status').style.color = '#2ec4b6';
+            }
+
+            // Update Destination Table
+            const dests = [
+                { name: 'Delhi NCR', demand: 400, rec: delhiSupply },
+                { name: 'Kolkata Metro', demand: 300, rec: kolkataSupply },
+                { name: 'Mumbai Ind.', demand: 300, rec: mumbaiSupply }
+            ];
+
+            let destHtml = '';
+            dests.forEach(d => {
+                let status = d.rec >= d.demand ? '<span class="status-dot bg-ok"></span>OK' : '<span class="status-dot bg-fail"></span>DEFICIT';
+                destHtml += `<tr><td>${d.name}</td><td>${d.demand}MW</td><td>${d.rec}MW</td><td>${status}</td></tr>`;
+            });
+            document.querySelector('#dest-table tbody').innerHTML = destHtml;
+
+            // Update Ranking Alternatives
+            let altHtml = '';
+            if (disabledNodes.has(1)) { // Mundra Port Fail
+                altHtml += `<tr><td>1</td><td>Reroute via Vizag -> Eastern Substation</td><td>+₹15/MWh</td><td>+3 hrs</td></tr>`;
+                altHtml += `<tr><td>2</td><td>Activate Gas Backups (Delhi)</td><td>+₹35/MWh</td><td>+0 hrs</td></tr>`;
+                document.getElementById('m-cost').innerText = '+₹15 / MWh';
+            } else if (disabledNodes.has(4)) { // Northern Substation Fail
+                altHtml += `<tr><td>1</td><td>Bypass line (Vizag -> Eastern Sub -> Delhi)</td><td>+₹20/MWh</td><td>+4 hrs</td></tr>`;
+                document.getElementById('m-cost').innerText = '+₹20 / MWh';
+            } else {
+                altHtml = `<tr><td colspan="4" style="text-align:center; color:#888;">No rerouting required</td></tr>`;
+                document.getElementById('m-cost').innerText = '+₹0 / MWh';
+            }
+            document.querySelector('#alt-table tbody').innerHTML = altHtml;
+        }
+
+        function loadDemo(num) {
+            disabledNodes.clear();
+            if (num === 1) disabledNodes.add(1); // Disable Mundra Port
+            if (num === 2) disabledNodes.add(4); // Disable Northern Substation
+            updateVisuals();
+            recalculate();
+        }
+
+        function resetNetwork() {
+            disabledNodes.clear();
+            updateVisuals();
+            recalculate();
+        }
+
+        window.onload = initNetwork;
+    </script>
+</body>
+</html>
